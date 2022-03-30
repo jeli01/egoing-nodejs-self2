@@ -2,6 +2,9 @@ let http = require('http');
 let url = require('url');
 let fs = require('fs');
 let qs = require('querystring');
+let formBundle = require('./lib/formBundle.js');
+let path = require('path');
+let sanitizeHtml = require('sanitize-html');
 
 function createHTML(title, description, list, CUDInterface) {
   return `
@@ -22,28 +25,6 @@ function createHTML(title, description, list, CUDInterface) {
   `;
 }
 
-function createForm(pathname) {
-  return `
-  <form action="http://localhost:3000/create_process" method="post">
-    <p><input type="text" name="title" placeholder="title"></p>
-    <p><textarea name="description" placeholder="description"></textarea></p>
-    <p><input type="submit"></p>
-  </form>
-  `;
-}
-
-function updateForm(pathname, title) {
-  return `
-  <form action="http://localhost:3000/update_process" method="post">
-    <input type="hidden" name="preTitle" value="${title}">
-    <p><input type="text" name="title" placeholder="title"></p>
-    <p><textarea name="description" placeholder="description"></textarea></p>
-    <p><input type="submit"></p>
-  </form>
-  `;
-}
-
-
 let app = http.createServer(function(request,response) {
   let _url = request.url;
   let queryData = url.parse(_url, true).query;
@@ -62,14 +43,17 @@ let app = http.createServer(function(request,response) {
     if(queryData.id === undefined) {
       title = 'WEB';
       fs.readFile(`./main_data/web`,'utf8',function(err,description) {
-        html = createHTML(title,description,list,`<a href="/create">create</a>`);
+        sanitizedDescription = sanitizeHtml(description);
+        html = createHTML(title,sanitizedDescription,list,`<a href="/create">create</a>`);
         response.writeHead(200);
         response.end(html);
       });
     }
     else {
-      fs.readFile(`./data/${title}`,'utf8',function(err,description) {
-        html = createHTML(title,description,list,`<a href="/create">create</a> <a href="/update">update</a> 
+      filteredTitle = path.parse(title).name;
+      fs.readFile(`./data/${filteredTitle}`,'utf8',function(err,description) {
+        sanitizedDescription = sanitizeHtml(description);
+        html = createHTML(title,sanitizedDescription,list,`<a href="/create">create</a> <a href="/update">update</a> 
         <form action='/delete_process' method="post">
           <input type="hidden" name="title" value="${title}">
           <input type="submit" value="delete">
@@ -80,7 +64,7 @@ let app = http.createServer(function(request,response) {
       });
     }
   } else if (pathname == `/create`) {
-      let form = createForm(pathname);
+      let form = formBundle.create();
       html = createHTML(`create`,form,list,``);
       response.writeHead(200);
       response.end(html);
@@ -102,12 +86,11 @@ let app = http.createServer(function(request,response) {
       });
     });
   } else if (pathname == `/update`) {
-    let form = updateForm(pathname, title);
-    fs.readFile(`./data/${title}`,'utf8',function(err,description) {
-      html = createHTML(`update`,form,list,``);
-      response.writeHead(200);
-      response.end(html);
-    });
+    let form = formBundle.update(title);
+    html = createHTML(`update`,form,list,``);
+    response.writeHead(200);
+    response.end(html);
+
   } else if (pathname == `/update_process`) {
     let body = '';
     request.on('data', function(data){
@@ -138,7 +121,8 @@ let app = http.createServer(function(request,response) {
     request.on('end', function () {
       let post = qs.parse(body);
       let title = post.title;
-      fs.unlink(`./data/${title}`, function(err) {
+      filteredTitle = path.parse(title).name;
+      fs.unlink(`./data/${filteredTitle}`, function(err) {
         response.writeHead(302, {
           Location: `/`
         });
